@@ -1,29 +1,36 @@
 {
   "expo": {
-    "name": "RapidGoPartnerJS",
-    "slug": "RapidGoPartnerJS",
+    "name": "RapidGo Partnership",
+    "slug": "rapidgopartnerjs",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/splash-icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.dchamindu826.rapidgopartnerjs",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "7f83a2b1-4cbe-4458-8588-56bf14870144"
+      }
     }
   }
 }
