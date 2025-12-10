@@ -15,7 +15,7 @@ LogBox.ignoreLogs([
   'Cannot open, already sending', 
   'EventSource',
   'text strings must be rendered',
-  'shouldShowAlert' // Warning eka ignore karanawa
+  'shouldShowAlert' 
 ]);
 
 const REPEAT_SOUND_COUNT = 4;
@@ -39,7 +39,7 @@ Notifications.setNotificationHandler({
             });
         }
         return { 
-          shouldShowBanner: true, // Alert wenuwata Banner
+          shouldShowBanner: true, // FIXED: Banner (Not Alert)
           shouldShowList: true,
           shouldPlaySound: false, 
           shouldSetBadge: true, 
