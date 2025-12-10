@@ -1,94 +1,84 @@
 // src/components/NewOrderAlert.js
-import React, { useState } from 'react';
-import { 
-  View, Text, StyleSheet, 
-  TouchableOpacity, Modal, Dimensions, 
-  ActivityIndicator, TextInput 
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../theme/colors';
 
-const { height, width } = Dimensions.get('window');
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ScrollView } from 'react-native';
+import { COLORS } from '../theme/colors';
+import { Ionicons } from '@expo/vector-icons';
 
 const NewOrderAlert = ({ isVisible, order, onAccept, onReject }) => {
-  const [estimatedTime, setEstimatedTime] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  // Modal eka close karala, Accept logic eka run karanawa
-  const handleAccept = async () => {
-    if (!estimatedTime || estimatedTime <= 0) {
-      alert('Please enter a valid estimated preparation time (in minutes).');
-      return;
-    }
-    setIsProcessing(true);
-    await onAccept(order, estimatedTime);
-    setIsProcessing(false);
-    setEstimatedTime(''); // Clear for next time
-  };
-
-  const handleReject = async () => {
-    setIsProcessing(true);
-    await onReject(order);
-    setIsProcessing(false);
-  };
+  const [selectedTime, setSelectedTime] = useState(15); // Default 15 mins
 
   if (!order) return null;
 
+  const timeOptions = [10, 15, 20, 30, 45, 60];
+
   return (
-    <Modal
-      animationType="fade"
-      transparent={true}
-      visible={isVisible}
-      onRequestClose={() => {}} // User ta back button eken close karanna denne na
-    >
-      <View style={styles.centeredView}>
-        <View style={styles.modalView}>
-          <Ionicons name="notifications-circle" size={80} color={COLORS.primaryYellow} />
-          <Text style={styles.modalTitle}>NEW ORDER #{order.orderId}</Text>
-
-          <View style={styles.detailsContainer}>
-            <Text style={styles.detailText}>
-              <Text style={styles.detailLabel}>Customer:</Text> {order.customerName || 'Unknown'}
-            </Text>
-            <Text style={styles.detailText}>
-              <Text style={styles.detailLabel}>Total Items:</Text> {order.items?.length || 0}
-            </Text>
-            <Text style={styles.detailText}>
-              <Text style={styles.detailLabel}>Total Amount:</Text> Rs. {order.foodTotal.toFixed(2)}
-            </Text>
-          </View>
+    <Modal transparent={true} visible={isVisible} animationType="slide">
+      <View style={styles.overlay}>
+        <View style={styles.alertBox}>
           
-          <Text style={styles.promptText}>Estimated Preparation Time (mins):</Text>
-          <TextInput
-            style={styles.timeInput}
-            onChangeText={setEstimatedTime}
-            value={estimatedTime}
-            placeholder="e.g., 25"
-            keyboardType="numeric"
-            maxLength={3}
-          />
+          <View style={styles.header}>
+            <Ionicons name="notifications-circle" size={50} color={COLORS.primaryYellow} />
+            <Text style={styles.title}>New Order Received!</Text>
+            <Text style={styles.orderId}>#{order._id ? order._id.slice(-6).toUpperCase() : '---'}</Text>
+          </View>
 
-          <View style={styles.buttonRow}>
-            <TouchableOpacity
-              style={[styles.button, styles.buttonAccept]}
-              onPress={handleAccept}
-              disabled={isProcessing}
-            >
-              {isProcessing ? (
-                <ActivityIndicator color={COLORS.yellowButtonText} />
-              ) : (
-                <Text style={styles.buttonTextAccept}>ACCEPT</Text>
-              )}
+          <ScrollView style={styles.content}>
+            {/* Customer Details */}
+            <View style={styles.section}>
+              <Text style={styles.label}>Customer:</Text>
+              <Text style={styles.value}>{order.receiverName || 'Guest'}</Text>
+              <Text style={styles.subValue}>{order.deliveryAddress || 'Pick-up'}</Text>
+            </View>
+
+            {/* Items */}
+            <View style={styles.section}>
+              <Text style={styles.label}>Items:</Text>
+              {order.orderedItems?.map((item, index) => (
+                <View key={index} style={styles.itemRow}>
+                  <Text style={styles.itemText}>{item.quantity} x {item.name}</Text>
+                  <Text style={styles.itemPrice}>LKR {item.price * item.quantity}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Total */}
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total:</Text>
+              <Text style={styles.totalValue}>LKR {order.foodTotal}</Text>
+            </View>
+
+            {/* Time Selection */}
+            <Text style={styles.label}>Prep Time (Mins):</Text>
+            <View style={styles.timeContainer}>
+              {timeOptions.map((time) => (
+                <TouchableOpacity 
+                  key={time} 
+                  style={[styles.timeButton, selectedTime === time && styles.activeTimeButton]}
+                  onPress={() => setSelectedTime(time)}
+                >
+                  <Text style={[styles.timeText, selectedTime === time && styles.activeTimeText]}>
+                    {time}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+
+          {/* Buttons */}
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.rejectButton} onPress={() => onReject(order)}>
+              <Text style={styles.buttonText}>Reject</Text>
             </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.button, styles.buttonReject]}
-              onPress={handleReject}
-              disabled={isProcessing}
+
+            <TouchableOpacity 
+              style={styles.acceptButton} 
+              onPress={() => onAccept(order, selectedTime)} // Select karapu time eka yawanawa
             >
-              <Text style={styles.buttonTextReject}>REJECT</Text>
+              <Text style={styles.buttonText}>Accept ({selectedTime}m)</Text>
             </TouchableOpacity>
           </View>
+
         </View>
       </View>
     </Modal>
@@ -96,95 +86,33 @@ const NewOrderAlert = ({ isVisible, order, onAccept, onReject }) => {
 };
 
 const styles = StyleSheet.create({
-  centeredView: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.8)', // Dark overlay
-  },
-  modalView: {
-    margin: 20,
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
-    padding: 35,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-    width: width * 0.9,
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    color: COLORS.textDark,
-  },
-  detailsContainer: {
-    width: '100%',
-    padding: 10,
-    backgroundColor: COLORS.lightBackground,
-    borderRadius: 8,
-    marginBottom: 15,
-  },
-  detailText: {
-    fontSize: 16,
-    color: COLORS.textNormal,
-    marginBottom: 5,
-  },
-  detailLabel: {
-    fontWeight: 'bold',
-    color: COLORS.textDark,
-  },
-  promptText: {
-    fontSize: 16,
-    color: COLORS.textDark,
-    marginTop: 10,
-    marginBottom: 5,
-    fontWeight: '600',
-  },
-  timeInput: {
-    height: 45,
-    width: '100%',
-    borderColor: COLORS.border,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    marginBottom: 20,
-    fontSize: 18,
-    textAlign: 'center',
-    fontWeight: 'bold',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  button: {
-    flex: 1,
-    borderRadius: 10,
-    padding: 12,
-    elevation: 2,
-    marginHorizontal: 5,
-    alignItems: 'center',
-  },
-  buttonAccept: {
-    backgroundColor: COLORS.primaryYellow,
-  },
-  buttonReject: {
-    backgroundColor: COLORS.danger,
-  },
-  buttonTextAccept: {
-    color: COLORS.yellowButtonText,
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  buttonTextReject: {
-    color: COLORS.white,
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  alertBox: { width: '85%', backgroundColor: 'white', borderRadius: 20, padding: 20, maxHeight: '85%', elevation: 10 },
+  header: { alignItems: 'center', marginBottom: 10 },
+  title: { fontSize: 20, fontWeight: 'bold', color: COLORS.textDark },
+  orderId: { fontSize: 14, color: COLORS.textLight },
+  content: { marginBottom: 15 },
+  section: { marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10 },
+  label: { fontSize: 12, color: COLORS.textLight, marginBottom: 2 },
+  value: { fontSize: 16, fontWeight: 'bold', color: COLORS.textDark },
+  subValue: { fontSize: 12, color: COLORS.textNormal },
+  itemRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
+  itemText: { fontSize: 14, color: COLORS.textDark },
+  itemPrice: { fontSize: 14, color: COLORS.textNormal },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 5, paddingTop: 5, borderTopWidth: 1, borderTopColor: '#eee' },
+  totalLabel: { fontSize: 16, fontWeight: 'bold' },
+  totalValue: { fontSize: 16, fontWeight: 'bold', color: COLORS.primaryYellow },
+  
+  timeContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 5, marginBottom: 10 },
+  timeButton: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 15, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.lightBackground },
+  activeTimeButton: { backgroundColor: COLORS.primaryYellow, borderColor: COLORS.primaryYellow },
+  timeText: { fontSize: 12, color: COLORS.textNormal },
+  activeTimeText: { color: 'white', fontWeight: 'bold' },
+
+  buttonContainer: { flexDirection: 'row', gap: 10 },
+  rejectButton: { flex: 1, backgroundColor: '#FF4444', padding: 12, borderRadius: 10, alignItems: 'center' },
+  acceptButton: { flex: 1, backgroundColor: COLORS.primaryYellow, padding: 12, borderRadius: 10, alignItems: 'center' },
+  buttonText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
 });
 
 export default NewOrderAlert;

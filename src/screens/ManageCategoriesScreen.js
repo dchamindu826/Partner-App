@@ -28,7 +28,7 @@ const ManageCategoriesScreen = () => {
   const fetchCategories = async () => {
     if (!user || !user.restaurant) return;
     setIsLoading(true);
-    const restaurantId = user.restaurant._ref;
+    const restaurantId = user.restaurant._id;
     const query = `*[_type == "foodCategory" && restaurant._ref == $restaurantId] | order(title asc) { _id, "name": title }`;
 
     try {
@@ -51,7 +51,7 @@ const ManageCategoriesScreen = () => {
   const handleAddCategory = async () => {
     if (!newCategoryName.trim()) return;
 
-    const restaurantId = user.restaurant._ref;
+    const restaurantId = user.restaurant._id;
     const doc = {
       _type: 'foodCategory',
       title: newCategoryName.trim(),

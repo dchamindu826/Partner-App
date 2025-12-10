@@ -4,7 +4,7 @@
     "slug": "rapidgopartnerjs",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/splash-icon.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -15,18 +15,35 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rapidgo.partner"
     },
     "android": {
-      "package": "com.dchamindu826.rapidgopartnerjs",
+      "package": "com.rapidgo.partner", 
+      "googleServicesFile": "./google-services.json", 
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "NOTIFICATIONS",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you upload menu items."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "7f83a2b1-4cbe-4458-8588-56bf14870144"

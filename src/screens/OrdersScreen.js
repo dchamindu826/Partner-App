@@ -1,13 +1,10 @@
 // src/screens/OrdersScreen.js
-// --- FINAL FIX: Added 'useNavigation' and 'TouchableOpacity' imports ---
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   View, Text, StyleSheet, 
-  ScrollView, // ScrollView import eka thiyenawa
-  ActivityIndicator, RefreshControl, Platform, Alert,
-  TouchableOpacity, // --- (!!!) 1. TouchableOpacity IMPORT EKA (!!!) ---
-  FlatList // --- (!!!) 1. FlatList IMPORT EKA (!!!) ---
+  ActivityIndicator, RefreshControl, Alert,
+  TouchableOpacity, FlatList 
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,110 +13,183 @@ import { COLORS } from '../theme/colors';
 import { client } from '../sanity/sanityClient';
 import OrderCard from '../components/OrderCard';
 import NewOrderAlert from '../components/NewOrderAlert'; 
-// --- (!!!) 2. useNavigation IMPORT EKA (!!!) ---
 import { useNavigation, useFocusEffect } from '@react-navigation/native'; 
+import { Audio } from 'expo-av'; 
 
 const getOrderQuery = (status, restaurantId) => {
   return `*[_type == "foodOrder" && restaurant._ref == "${restaurantId}" && orderStatus == "${status}"] | order(_createdAt desc){
-    _id, 
-    foodTotal, 
-    orderStatus, 
-    receiverName, 
-    deliveryAddress, 
-    _createdAt, 
-    "orderedItems": orderedItems[]{
-        "name": @.item->name,
-        "price": @.item->price,
-        "quantity": @.quantity
-    },
-    preparationTime,
-    statusUpdates
+    _id, foodTotal, orderStatus, receiverName, receiverPhone, deliveryAddress, _createdAt, 
+    "orderedItems": orderedItems[]{ "name": @.item->name, "price": @.item->price, "quantity": @.quantity, "image": @.item->image },
+    preparationTime, statusUpdates
   }`;
 };
 
 const OrdersScreen = () => {
   const { user } = useAuth();
-  const restaurantId = user?.restaurant?._ref;
+  const restaurantId = user?.restaurant?._id;
   const [activeTab, setActiveTab] = useState('pending');
   const [orders, setOrders] = useState([]);
+  const [tabCounts, setTabCounts] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [newIncomingOrder, setNewIncomingOrder] = useState(null);
-
-  // --- (!!!) 3. NAVIGATION HOOK EKA CALL KARANAWA (!!!) ---
+  
+  const soundRef = useRef(null);
+  const isMounted = useRef(true); 
   const navigation = useNavigation(); 
 
+  // --- SOUND LOGIC ---
+  const playAlertSound = async () => {
+    try {
+      if (soundRef.current) { await soundRef.current.unloadAsync(); }
+      const { sound } = await Audio.Sound.createAsync(
+        require('../../assets/new_order_alert.mp3'), 
+        { isLooping: true, shouldPlay: true }
+      );
+      soundRef.current = sound;
+      await sound.playAsync();
+    } catch (error) {
+      console.log("Sound Error (Ignored):", error);
+    }
+  };
+
+  const stopAlertSound = async () => {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+    } catch (error) {
+      // Ignore cleanup errors
+    }
+  };
+
+  // --- DATA FETCHING ---
   const fetchOrders = useCallback(async (tab = activeTab) => {
     if (!restaurantId) return;
     try {
       const query = getOrderQuery(tab, restaurantId);
       const fetchedOrders = await client.fetch(query);
-      setOrders(fetchedOrders);
-    } catch (error) {
-      console.error("Failed to fetch orders:", error);
-    }
-  }, [restaurantId, activeTab]);
+      
+      const countQuery = `
+      {
+        "pending": count(*[_type == "foodOrder" && restaurant._ref == "${restaurantId}" && orderStatus == "pending"]),
+        "preparing": count(*[_type == "foodOrder" && restaurant._ref == "${restaurantId}" && orderStatus == "preparing"]),
+        "readyForPickup": count(*[_type == "foodOrder" && restaurant._ref == "${restaurantId}" && orderStatus == "readyForPickup"]),
+        "assigned": count(*[_type == "foodOrder" && restaurant._ref == "${restaurantId}" && orderStatus == "assigned"]),
+        "onTheWay": count(*[_type == "foodOrder" && restaurant._ref == "${restaurantId}" && orderStatus == "onTheWay"])
+      }
+      `;
+      const counts = await client.fetch(countQuery);
 
+      if (isMounted.current) {
+         setOrders(fetchedOrders);
+         setTabCounts(counts);
+         
+         if (tab === 'pending' && fetchedOrders.length > 0) {
+             const latestOrder = fetchedOrders[0];
+             if (!newIncomingOrder) {
+                 setNewIncomingOrder(latestOrder);
+                 playAlertSound(); 
+             }
+         }
+      }
+    } catch (error) {
+      console.error("Fetch error handled");
+    }
+  }, [restaurantId, activeTab, newIncomingOrder]);
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+      stopAlertSound();
+    };
+  }, []);
+  
+  // Real-time Listener
   useEffect(() => {
     if (!restaurantId) return;
     const subscription = client.listen(
-      `*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus == "pending"]`, 
+      `*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus == "pending" && !(_id in path("drafts.**"))]`, 
       { restaurantId }
-    ).subscribe(update => {
-      if (update.transition === 'appear') { 
+    ).subscribe(async (update) => {
+      if (update.transition === 'appear' || update.transition === 'update') { 
         const newOrder = update.result;
-        if (newOrder.orderStatus === 'pending') {
-          setNewIncomingOrder(newOrder); 
+        if (newOrder && newOrder.orderStatus === 'pending' && !newOrder._id.startsWith('drafts.')) {
+            if (isMounted.current) {
+                const fullOrderQuery = `*[_type == "foodOrder" && _id == $id][0]{
+                    _id, foodTotal, orderStatus, receiverName, receiverPhone, deliveryAddress, _createdAt,
+                    "orderedItems": orderedItems[]{ "name": @.item->name, "price": @.item->price, "quantity": @.quantity }
+                }`;
+                const fullOrder = await client.fetch(fullOrderQuery, { id: newOrder._id });
+                setNewIncomingOrder(fullOrder); 
+                playAlertSound();
+            }
         }
       }
       fetchOrders(); 
     });
     return () => subscription.unsubscribe();
-  }, [restaurantId, fetchOrders]);
+  }, [restaurantId]);
 
   useFocusEffect(
     useCallback(() => {
       setIsLoading(true);
-      fetchOrders().finally(() => setIsLoading(false));
-    }, [activeTab, fetchOrders])
+      fetchOrders().finally(() => {
+          if (isMounted.current) setIsLoading(false);
+      });
+    }, [fetchOrders])
   );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchOrders().finally(() => setRefreshing(false));
+    fetchOrders().finally(() => {
+        if(isMounted.current) setRefreshing(false)
+    });
   }, [fetchOrders]);
 
+  // --- HANDLE ACTION (ACCEPT/REJECT) ---
   const handleOrderAction = async (order, newStatus, estimatedTime = null) => {
-    const patch = client.patch(order._id).set({ orderStatus: newStatus });
+    // 1. STOP SOUND IMMEDIATELY
+    await stopAlertSound();
+    
+    const docId = order._id.replace('drafts.', '');
+    
+    // 2. Generate a Robust Key
+    const generateKey = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+
+    const updateItem = {
+        _key: generateKey(),
+        status: newStatus, 
+        timestamp: new Date().toISOString() 
+    };
+
+    // 3. Patch with Key
+    let patch = client.patch(docId)
+  .setIfMissing({ statusUpdates: [] })
+  .append('statusUpdates', [updateItem])
+  .commit();
+
     if (newStatus === 'preparing') {
-      const timestamp = new Date().toISOString();
-      patch.set({
-        preparationTime: parseInt(estimatedTime),
-        statusUpdates: [{ 
-          status: 'preparing', 
-          timestamp: timestamp 
-        }]
-      });
-    } else if (newStatus === 'cancelled') {
-       patch.set({
-        statusUpdates: [{ 
-          status: 'cancelled', 
-          timestamp: new Date().toISOString() 
-        }]
-      });
+      patch = patch.set({ preparationTime: parseInt(estimatedTime) });
     }
+
     try {
       await patch.commit();
       setNewIncomingOrder(null);
-      fetchOrders();
+      
+      if (newStatus === 'preparing') {
+          setActiveTab('preparing'); 
+      } else {
+          fetchOrders();
+      }
+      
     } catch (error) {
-      console.error(`Failed to update order:`, error);
-      Alert.alert('Error', `Failed to perform action. Please try again.`);
+      console.error(`Update failed:`, error);
+      Alert.alert('Error', `Failed to update order. Go to Sanity Studio and click 'Add Missing Keys' if this persists.`);
     }
   };
-
-  const handleAccept = (order, time) => handleOrderAction(order, 'preparing', time);
-  const handleReject = (order) => handleOrderAction(order, 'cancelled');
 
   const tabs = [
     { key: 'pending', title: 'Pending' },
@@ -136,22 +206,30 @@ const OrdersScreen = () => {
       <Text style={styles.header}>Order Management</Text>
       
       <View style={styles.tabContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScrollView}>
-          {tabs.map((tab) => (
+        <FlatList
+          horizontal
+          data={tabs}
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(item) => item.key}
+          contentContainerStyle={styles.tabScrollView}
+          renderItem={({ item }) => (
             <TouchableOpacity
-              key={tab.key}
-              style={[styles.tabButton, activeTab === tab.key && styles.activeTabButton]}
-              onPress={() => setActiveTab(tab.key)}
+              style={[styles.tabButton, activeTab === item.key && styles.activeTabButton]}
+              onPress={() => setActiveTab(item.key)}
             >
-              <Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>
-                {tab.title}
+              <Text style={[styles.tabText, activeTab === item.key && styles.activeTabText]}>
+                {item.title}
               </Text>
+              {tabCounts[item.key] > 0 && (
+                  <View style={styles.tabBadge}>
+                      <Text style={styles.tabBadgeText}>{tabCounts[item.key]}</Text>
+                  </View>
+              )}
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          )}
+        />
       </View>
 
-      {/* --- (!!!) 4. ScrollView WENUATA FlatList (!!!) --- */}
       {isLoading ? (
         <ActivityIndicator size="large" color={COLORS.primaryYellow} style={styles.loading} />
       ) : (
@@ -162,7 +240,6 @@ const OrdersScreen = () => {
           contentContainerStyle={{ paddingBottom: 50 }}
           renderItem={({ item }) => (
             <OrderCard 
-              key={item._id} 
               item={item} 
               onPress={() => navigation.navigate('OrderDetailsScreen', { orderId: item._id })}
             />
@@ -179,12 +256,14 @@ const OrdersScreen = () => {
         />
       )}
 
-      <NewOrderAlert 
-        isVisible={!!newIncomingOrder}
-        order={newIncomingOrder}
-        onAccept={handleAccept}
-        onReject={handleReject}
-      />
+      {newIncomingOrder && (
+          <NewOrderAlert 
+            isVisible={!!newIncomingOrder}
+            order={newIncomingOrder}
+            onAccept={handleOrderAction}
+            onReject={(order) => handleOrderAction(order, 'cancelled')}
+          />
+      )}
     </SafeAreaView>
   );
 };
@@ -192,52 +271,23 @@ const OrdersScreen = () => {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.white },
   header: { fontSize: 24, fontWeight: 'bold', color: COLORS.textDark, padding: 20 },
-  tabContainer: { 
-    borderBottomWidth: 1, 
-    borderBottomColor: COLORS.border, 
-    paddingBottom: 5,
-    backgroundColor: COLORS.white,
+  tabContainer: { borderBottomWidth: 1, borderBottomColor: COLORS.border, paddingBottom: 5, backgroundColor: COLORS.white, height: 60 },
+  tabScrollView: { paddingHorizontal: 10, alignItems: 'center' },
+  tabButton: { 
+      paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, marginHorizontal: 5, backgroundColor: COLORS.lightBackground,
+      flexDirection: 'row', alignItems: 'center' 
   },
-  tabScrollView: {
-    paddingHorizontal: 10,
+  activeTabButton: { backgroundColor: COLORS.primaryYellow },
+  tabText: { color: COLORS.textNormal, fontWeight: '600', fontSize: 14 },
+  activeTabText: { color: COLORS.yellowButtonText },
+  tabBadge: { 
+      backgroundColor: 'red', borderRadius: 10, width: 20, height: 20, justifyContent: 'center', alignItems: 'center', marginLeft: 5 
   },
-  tabButton: {
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginHorizontal: 5,
-    backgroundColor: COLORS.lightBackground,
-  },
-  activeTabButton: {
-    backgroundColor: COLORS.primaryYellow,
-  },
-  tabText: {
-    color: COLORS.textNormal,
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  activeTabText: {
-    color: COLORS.yellowButtonText,
-  },
-  listContainer: {
-    flex: 1,
-    paddingHorizontal: 15,
-    paddingTop: 10,
-  },
-  loading: {
-    marginTop: 50,
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 100,
-  },
-  emptyText: {
-    marginTop: 10,
-    fontSize: 18,
-    color: COLORS.textLight,
-  },
+  tabBadgeText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
+  listContainer: { flex: 1, paddingHorizontal: 15, paddingTop: 10 },
+  loading: { marginTop: 50 },
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 100 },
+  emptyText: { marginTop: 10, fontSize: 18, color: COLORS.textLight },
 });
 
 export default OrdersScreen;

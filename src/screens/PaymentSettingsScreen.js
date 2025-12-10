@@ -34,7 +34,7 @@ const PaymentSettingsScreen = () => {
   useFocusEffect(
     React.useCallback(() => {
       if (user && user.restaurant) {
-        const restId = user.restaurant._ref;
+        const restId = user.restaurant._id;
         setRestaurantId(restId);
         const query = `*[_type == "restaurant" && _id == $restId][0]{ 
           bankDetails,

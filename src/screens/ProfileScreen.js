@@ -27,7 +27,7 @@ const ProfileScreen = () => {
       setIsLoading(false);
       return;
     }
-    const restaurantId = user.restaurant._ref;
+    const restaurantId = user.restaurant._id;
     const query = `{
       "restaurant": *[_type == "restaurant" && _id == $restaurantId][0],
       "staff": *[_type == "restaurantUser" && _id == $userId][0]{_id, email, role}

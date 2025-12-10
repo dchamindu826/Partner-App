@@ -56,7 +56,7 @@ function MainTabs() {
 
   useEffect(() => {
     if (!user || !user.restaurant) return;
-    const restaurantId = user.restaurant._ref;
+    const restaurantId = user.restaurant._id;
     
     client.fetch(`count(*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus == "pending"])`, { restaurantId })
       .then(setPendingCount);
@@ -101,7 +101,7 @@ function AppNavigator() {
 
   useEffect(() => {
     if (!user || !user.restaurant) return;
-    const restaurantId = user.restaurant._ref;
+   const restaurantId = user.restaurant._id;
 
     const subscription = client.listen(
         `*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus == "pending"]`, 

@@ -31,7 +31,7 @@ const MenuScreen = () => {
   const fetchData = async (showLoading = true) => {
     if (!user || !user.restaurant) return;
     if (showLoading) setIsLoading(true);
-    const restaurantId = user.restaurant._ref;
+    const restaurantId = user.restaurant._id;
     const query = `
       {
         "categories": *[_type == "foodCategory" && restaurant._ref == $restaurantId] | order(title asc) {

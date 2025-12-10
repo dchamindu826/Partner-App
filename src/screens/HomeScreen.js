@@ -1,4 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
+// src/screens/HomeScreen.js
+
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { 
   View, Text, StyleSheet, ScrollView, ActivityIndicator, 
   TouchableOpacity, Image, StatusBar, RefreshControl, Switch, Alert 
@@ -12,6 +14,8 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AnnouncementsModal from '../components/AnnouncementsModal'; 
+// New Imports
+import NewOrderAlert from '../components/NewOrderAlert';
 
 const placeholderImage = 'https://placehold.co/100x100/FFD700/333?text=Logo';
 
@@ -20,17 +24,80 @@ const HomeScreen = () => {
   const navigation = useNavigation();
   const [restaurantName, setRestaurantName] = useState('Partner');
   const [restaurantLogo, setRestaurantLogo] = useState(null);
-  const [restaurantId, setRestaurantId] = useState(null); // ID eka store karaganna
-  const [isOpen, setIsOpen] = useState(true); // Open/Close State
-  const [isStatusLoading, setIsStatusLoading] = useState(false); // Status change weddi loading pennanna
+  const [restaurantId, setRestaurantId] = useState(null); 
+  const [isOpen, setIsOpen] = useState(true); 
+  const [isStatusLoading, setIsStatusLoading] = useState(false); 
   
   const [isLoading, setIsLoading] = useState(true);
   const [showAnnouncements, setShowAnnouncements] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
   const [stats, setStats] = useState({ todayOrders: 0, todayRevenue: 0, pendingOrders: 0 });
   const [recentOrders, setRecentOrders] = useState([]);
+  
+  // Popup State
+  const [newIncomingOrder, setNewIncomingOrder] = useState(null);
 
-  // --- Check for Unread Announcements ---
+  const isMounted = useRef(true); 
+  
+  useEffect(() => {
+    return () => { isMounted.current = false; };
+  }, []); 
+
+  // --- LISTENER FOR HOME POPUP ---
+  useEffect(() => {
+    if (!user?.restaurant?._id) return;
+    const rId = user.restaurant._id;
+
+    const subscription = client.listen(
+      `*[_type == "foodOrder" && restaurant._ref == $rId && orderStatus == "pending" && !(_id in path("drafts.**"))]`, 
+      { rId }
+    ).subscribe(async (update) => {
+      if (update.transition === 'appear' || update.transition === 'update') {
+          const newOrder = update.result;
+          if (newOrder && newOrder.orderStatus === 'pending' && !newOrder._id.startsWith('drafts.')) {
+              if (isMounted.current) {
+                  // Fetch Full Details for Popup
+                  const fullOrderQuery = `*[_type == "foodOrder" && _id == $id][0]{
+                      _id, foodTotal, orderStatus, receiverName, deliveryAddress, _createdAt,
+                      "orderedItems": orderedItems[]{ "name": @.item->name, "price": @.item->price, "quantity": @.quantity }
+                  }`;
+                  const fullOrder = await client.fetch(fullOrderQuery, { id: newOrder._id });
+                  setNewIncomingOrder(fullOrder);
+              }
+          }
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [user]);
+  
+  // --- ORDER ACTIONS (Accept/Reject from Home) ---
+  const handleOrderAction = async (order, newStatus, estimatedTime = null) => {
+    const docId = order._id.replace('drafts.', '');
+    const patch = client.patch(docId).set({ orderStatus: newStatus });
+    
+    if (newStatus === 'preparing') {
+      patch.set({
+        preparationTime: parseInt(estimatedTime),
+        statusUpdates: [{ status: 'preparing', timestamp: new Date().toISOString() }]
+      });
+    } else if (newStatus === 'cancelled') {
+       patch.set({
+        statusUpdates: [{ status: 'cancelled', timestamp: new Date().toISOString() }]
+      });
+    }
+
+    try {
+      await patch.commit();
+      setNewIncomingOrder(null); // Close popup
+      // Refresh dashboard stats
+      fetchDashboardData();
+      Alert.alert("Success", newStatus === 'cancelled' ? "Order Rejected" : "Order Accepted");
+    } catch (error) {
+      console.error(`Failed to update order:`, error);
+      Alert.alert('Error', `Failed to perform action.`);
+    }
+  };
+
   const checkAnnouncements = async () => {
     try {
       const idQuery = `*[_type == "announcement"]._id`;
@@ -38,7 +105,7 @@ const HomeScreen = () => {
       const readIdsString = await AsyncStorage.getItem('readAnnouncements');
       const readIds = readIdsString ? JSON.parse(readIdsString) : [];
       const hasNew = serverIds.some(id => !readIds.includes(id));
-      setHasUnread(hasNew);
+      if (isMounted.current) setHasUnread(hasNew);
     } catch (error) {
       console.log("Announcement check error", error);
     }
@@ -46,18 +113,18 @@ const HomeScreen = () => {
 
   const fetchDashboardData = async () => {
     if (!user || !user.restaurant) {
-      setIsLoading(false);
+      if (isMounted.current) setIsLoading(false);
       return;
     }
-    setIsLoading(true);
-    const restId = user.restaurant._ref;
-    setRestaurantId(restId); // Save ID for later use
-
+    if (isMounted.current) setIsLoading(true);
+    
+    const restId = user.restaurant._id;
+    if (isMounted.current) setRestaurantId(restId);
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayISO = today.toISOString();
 
-    // Query eka update kala 'isOpen' field eka ganna
     const query = `
       {
         "restaurantInfo": *[_type == "restaurant" && _id == $restId][0]{ name, logo, isOpen },
@@ -70,10 +137,9 @@ const HomeScreen = () => {
     try {
       const data = await client.fetch(query, { restId, todayISO });
       
-      if (data.restaurantInfo) {
+      if (isMounted.current && data.restaurantInfo) { 
         setRestaurantName(data.restaurantInfo.name || 'Partner');
         setRestaurantLogo(data.restaurantInfo.logo || null);
-        // Database eken ena status eka set karanawa. Default TRUE.
         setIsOpen(data.restaurantInfo.isOpen !== false); 
       }
 
@@ -82,18 +148,20 @@ const HomeScreen = () => {
           if(order.orderStatus === 'completed') revenue += order.foodTotal || 0; 
       });
 
-      setStats({
-        todayOrders: data.todayStats.length,
-        todayRevenue: revenue,
-        pendingOrders: data.pendingCount,
-      });
-      setRecentOrders(data.recentOrders || []);
-      checkAnnouncements();
+      if (isMounted.current) { 
+        setStats({
+          todayOrders: data.todayStats.length,
+          todayRevenue: revenue,
+          pendingOrders: data.pendingCount,
+        });
+        setRecentOrders(data.recentOrders || []);
+        checkAnnouncements();
+      }
 
     } catch (err) {
       console.error("Failed to fetch dashboard data:", err);
     } finally {
-      setIsLoading(false);
+      if (isMounted.current) setIsLoading(false);
     }
   };
 
@@ -103,27 +171,17 @@ const HomeScreen = () => {
     }, [user])
   );
 
-  // --- HANDLE STATUS TOGGLE (ON/OFF Logic) ---
   const toggleRestaurantStatus = async (value) => {
     if (!restaurantId) return;
-    
     setIsStatusLoading(true);
     try {
-        // 1. UI eka ikmanata wenas karanawa (Optimistic Update)
         setIsOpen(value);
-        
-        // 2. Sanity Database eka update karanawa
-        await client.patch(restaurantId)
-            .set({ isOpen: value })
-            .commit();
-            
-        // Success
+        await client.patch(restaurantId).set({ isOpen: value }).commit();
         console.log(`Restaurant status updated to: ${value ? 'OPEN' : 'CLOSED'}`);
-        
     } catch (error) {
         console.error("Failed to update status:", error);
         Alert.alert("Error", "Failed to update status. Please try again.");
-        setIsOpen(!value); // Error ekak awoth ayeth parana thathweta maru karanawa
+        setIsOpen(!value); 
     } finally {
         setIsStatusLoading(false);
     }
@@ -162,7 +220,6 @@ const HomeScreen = () => {
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={fetchDashboardData} />}
         >
           
-          {/* --- RESTAURANT STATUS CARD --- */}
           <View style={styles.statusCard}>
              <View>
                 <Text style={styles.statusTitle}>Restaurant Status</Text>
@@ -173,7 +230,6 @@ const HomeScreen = () => {
              <Switch
                 trackColor={{ false: "#767577", true: "#81b0ff" }}
                 thumbColor={isOpen ? "#f5dd4b" : "#f4f3f4"}
-                ios_backgroundColor="#3e3e3e"
                 onValueChange={toggleRestaurantStatus}
                 value={isOpen}
                 disabled={isStatusLoading}
@@ -183,7 +239,7 @@ const HomeScreen = () => {
           <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>Quick Actions</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalScroll} contentContainerStyle={styles.horizontalScrollContent}>
-              <QuickActionButton title="New Orders" icon="notifications-outline" onPress={() => navigation.navigate('Orders')} />
+              <QuickActionButton title="New Orders" icon="notifications-outline"onPress={() => navigation.navigate('Orders')}badgeCount={stats.pendingOrders}/>
               <QuickActionButton title="Manage Menu" icon="restaurant-outline" onPress={() => navigation.navigate('Menu')} />
               <QuickActionButton title="Add Item" icon="add-circle-outline" onPress={() => navigation.navigate('AddMenuItemScreen', { item: null })} />
               <QuickActionButton title="Profile" icon="person-outline" onPress={() => navigation.navigate('Profile')} />
@@ -192,8 +248,8 @@ const HomeScreen = () => {
           
           <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>Today's Stats</Text>
-            <StatCard title="Today's Revenue (Completed)" value={`LKR ${stats.todayRevenue.toFixed(2)}`} icon="cash-outline" color="#28a745" />
-            <StatCard title="Total Orders Today" value={stats.todayOrders} icon="receipt-outline" color="#007bff" />
+            <StatCard title="Revenue (Completed)" value={`LKR ${stats.todayRevenue.toFixed(2)}`} icon="cash-outline" color="#28a745" />
+            <StatCard title="Total Orders" value={stats.todayOrders} icon="receipt-outline" color="#007bff" />
             <StatCard title="Pending Orders" value={stats.pendingOrders} icon="hourglass-outline" color="#E67E22" />
           </View>
 
@@ -220,14 +276,33 @@ const HomeScreen = () => {
         onClose={() => setShowAnnouncements(false)}
         onMarkAsRead={() => setHasUnread(false)}
       />
+
+      {/* 🚨 POPUP FOR HOME SCREEN */}
+      {newIncomingOrder && (
+          <NewOrderAlert 
+            isVisible={!!newIncomingOrder}
+            order={newIncomingOrder}
+            onAccept={(order) => handleOrderAction(order, 'preparing', 15)}
+            onReject={(order) => handleOrderAction(order, 'cancelled')}
+          />
+      )}
     </SafeAreaView>
   );
 };
 
-const QuickActionButton = ({ title, icon, onPress }) => (
+// ... (QuickActionButton, StatCard, RecentOrderItem, Styles - Keep them same as before)
+const QuickActionButton = ({ title, icon, onPress, badgeCount }) => (
   <TouchableOpacity style={styles.quickActionCard} onPress={onPress}>
     <Ionicons name={icon} size={30} color={COLORS.primaryYellow} />
     <Text style={styles.quickActionTitle}>{title}</Text>
+    {badgeCount > 0 && (
+         <View style={{
+             position: 'absolute', top: 5, right: 5, backgroundColor: 'red', 
+             width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center'
+         }}>
+             <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>{badgeCount}</Text>
+         </View>
+    )}
   </TouchableOpacity>
 );
 
@@ -256,7 +331,6 @@ const RecentOrderItem = ({ id, name, price }) => (
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.primaryYellow },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.lightBackground },
   headerContainer: {
     paddingTop: 10, paddingBottom: 40, paddingHorizontal: 20,
     flexDirection: 'row', alignItems: 'center', overflow: 'hidden',
@@ -277,35 +351,13 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: COLORS.lightBackground,
     borderTopLeftRadius: 40, borderTopRightRadius: 40, marginTop: -30, paddingTop: 20,
   },
-  
-  // --- STATUS CARD STYLES ---
   statusCard: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 20,
-    marginTop: 20,
-    marginBottom: 10,
-    borderRadius: 15,
-    padding: 15,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+    backgroundColor: COLORS.white, marginHorizontal: 20, marginTop: 20, marginBottom: 10, borderRadius: 15, padding: 15,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3,
   },
-  statusTitle: {
-      fontSize: 16,
-      fontWeight: 'bold',
-      color: COLORS.textDark,
-      marginBottom: 5,
-  },
-  statusText: {
-      fontSize: 14,
-      fontWeight: '600',
-  },
-
+  statusTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.textDark, marginBottom: 5 },
+  statusText: { fontSize: 14, fontWeight: '600' },
   sectionContainer: { marginBottom: 20 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.textDark, marginBottom: 15, paddingHorizontal: 20 },
   horizontalScroll: { paddingBottom: 10 },
@@ -317,21 +369,18 @@ const styles = StyleSheet.create({
   },
   quickActionTitle: { fontSize: 12, fontWeight: '600', color: COLORS.textNormal, marginTop: 8 },
   statCard: {
-    backgroundColor: COLORS.white, borderRadius: 10, padding: 15,
-    flexDirection: 'row', alignItems: 'center', marginBottom: 10,
+    backgroundColor: COLORS.white, borderRadius: 10, padding: 15, flexDirection: 'row', alignItems: 'center', marginBottom: 10,
     borderLeftWidth: 5, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, marginHorizontal: 20,
   },
   statIcon: { marginRight: 15 },
   statValue: { fontSize: 22, fontWeight: 'bold', color: COLORS.textDark },
   statTitle: { fontSize: 14, color: COLORS.textLight },
   recentItem: {
-    backgroundColor: COLORS.white, borderRadius: 10, padding: 15,
-    flexDirection: 'row', alignItems: 'center', marginBottom: 10,
+    backgroundColor: COLORS.white, borderRadius: 10, padding: 15, flexDirection: 'row', alignItems: 'center', marginBottom: 10,
     elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 1, marginHorizontal: 20,
   },
   recentIcon: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.lightBackground,
-    justifyContent: 'center', alignItems: 'center', marginRight: 15,
+    width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.lightBackground, justifyContent: 'center', alignItems: 'center', marginRight: 15,
   },
   recentDetails: { flex: 1 },
   recentId: { fontSize: 14, fontWeight: 'bold', color: COLORS.textDark },

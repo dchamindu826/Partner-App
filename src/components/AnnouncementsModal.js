@@ -78,7 +78,12 @@ const AnnouncementsModal = ({ isVisible, onClose, onMarkAsRead }) => {
                     <Text style={styles.dateText}>{formatDate(item.publishedAt)}</Text>
                   </View>
                   <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardDesc}>{item.description}</Text>
+                  
+                  {/* --- (FIX) Message ho Description dekama check karanawa --- */}
+                  <Text style={styles.cardDesc}>
+                    {item.message || item.description || "No content"}
+                  </Text>
+                  
                 </View>
               )}
             />

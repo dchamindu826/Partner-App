@@ -44,7 +44,7 @@ const AddMenuItemScreen = () => {
   // --- (Functions - No Change) ---
   const fetchCategories = async () => {
     if (user && user.restaurant) {
-      const restaurantId = user.restaurant._ref;
+      const restaurantId = user.restaurant._id;
       const query = `*[_type == "foodCategory" && restaurant._ref == $restaurantId]{"value": _id, "label": title}`;
       client.fetch(query, { restaurantId }).then(setCategories);
     }
@@ -95,7 +95,7 @@ const AddMenuItemScreen = () => {
     }
     setIsLoading(true);
     try {
-      const restaurantId = user.restaurant._ref;
+      const restaurantId = user.restaurant._id;
       let doc = {
         _type: 'menuItem',
         name,

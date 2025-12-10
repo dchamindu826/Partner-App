@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "150822256660",
+    "project_id": "rapid-go-f887c",
+    "storage_bucket": "rapid-go-f887c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:150822256660:android:bc7532355286b65a776701",
+        "android_client_info": {
+          "package_name": "com.rapidgo.partner"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "150822256660-9mb3i1jv9rnadgutilgsd1v9bmoirsi8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDaT4QmttC_G7oB_f6PwHZwATx3BBMPhKE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "150822256660-9mb3i1jv9rnadgutilgsd1v9bmoirsi8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

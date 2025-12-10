@@ -37,7 +37,10 @@ const LoginScreen = () => {
     setIsLoading(true);
 
     try {
-      const query = `*[_type == "restaurantUser" && email == $email && password == $password][0]`;
+      const query = `*[_type == "restaurantUser" && email == $email && password == $password][0]{
+  ...,
+  restaurant->{_id, name, logo, isOpen}
+}`;
       const params = {
         email: email.toLowerCase(),
         password: password,

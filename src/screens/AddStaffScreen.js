@@ -34,7 +34,7 @@ const AddStaffScreen = () => {
     setIsLoading(true);
 
     try {
-      const restaurantId = user.restaurant._ref;
+      const restaurantId = user.restaurant._id;
 
       // --- (3) 'name' field eka nathiwa doc eka hadanawa ---
       const doc = {

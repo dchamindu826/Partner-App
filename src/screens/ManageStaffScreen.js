@@ -21,7 +21,7 @@ const ManageStaffScreen = () => {
   const fetchStaff = async () => {
     if (!user || !user.restaurant) return;
     setIsLoading(true);
-    const restaurantId = user.restaurant._ref;
+    const restaurantId = user.restaurant._id;
     const query = `*[_type == "restaurantUser" && restaurant._ref == $restaurantId && _id != $ownerId] | order(email asc) { _id, email, role }`;
 
     try {

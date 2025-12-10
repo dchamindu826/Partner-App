@@ -59,7 +59,7 @@ const OrderReportScreen = () => {
         setReportData([]);
         setTotalEarning(0);
         
-        const restaurantId = user.restaurant._ref;
+        const restaurantId = user.restaurant._id;
         const start = new Date(startDate); start.setHours(0, 0, 0, 0); 
         const end = new Date(endDate); end.setHours(23, 59, 59, 999);
         
