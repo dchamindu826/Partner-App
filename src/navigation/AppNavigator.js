@@ -28,12 +28,10 @@ import PaymentSettingsScreen from '../screens/PaymentSettingsScreen';
 import HelpScreen from '../screens/HelpScreen';
 import TermsScreen from '../screens/TermsScreen';
 
-import IncomingOrderModal from '../components/IncomingOrderModal';
-
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-const TabBarIcon = ({ focused, color, size, route, pendingCount }) => {
+const TabBarIcon = ({ focused, color, size, route, badgeCount }) => {
   let iconName;
   if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
   else if (route.name === 'Orders') iconName = focused ? 'receipt' : 'receipt-outline';
@@ -43,8 +41,12 @@ const TabBarIcon = ({ focused, color, size, route, pendingCount }) => {
   return (
     <View style={styles.tabIconContainer}>
       <Ionicons name={iconName} size={size} color={color} />
-      {route.name === 'Orders' && pendingCount > 0 && (
-        <View style={styles.dot} />
+      {/* Orders Tab එකට විතරක් Badge එක පෙන්නනවා */}
+      {route.name === 'Orders' && badgeCount > 0 && (
+        <View style={styles.badge}>
+            {/* කැමති නම් අංකය පෙන්නන්නත් පුළුවන්, නැත්නම් Dot එක විතරක් තියන්න */}
+            {/* <Text style={styles.badgeText}>{badgeCount}</Text> */}
+        </View>
       )}
     </View>
   );
@@ -52,21 +54,26 @@ const TabBarIcon = ({ focused, color, size, route, pendingCount }) => {
 
 function MainTabs() {
   const { user } = useAuth();
-  const [pendingCount, setPendingCount] = useState(0);
+  const [activeOrderCount, setActiveOrderCount] = useState(0);
 
   useEffect(() => {
     if (!user || !user.restaurant) return;
     const restaurantId = user.restaurant._id;
     
-    client.fetch(`count(*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus == "pending"])`, { restaurantId })
-      .then(setPendingCount);
+    // --- 1. Query එක වෙනස් කළා ---
+    // Pending විතරක් නෙමෙයි, Active හැම Order එකක්ම (Completed/Cancelled නොවන) ගණන් කරනවා
+    const countQuery = `count(*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus in ["pending", "preparing", "readyForPickup", "assigned", "onTheWay"]])`;
 
+    // මුලින්ම Count එක ගන්නවා
+    client.fetch(countQuery, { restaurantId }).then(setActiveOrderCount);
+
+    // --- 2. Listener එක වෙනස් කළා ---
+    // Restaurant එකේ ඕනෑම Order එකක වෙනසක් වුනොත් Count එක ආයේ බලනවා
     const subscription = client.listen(
-        `*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus == "pending"]`, 
+        `*[_type == "foodOrder" && restaurant._ref == $restaurantId]`, 
         { restaurantId }
     ).subscribe(() => {
-       client.fetch(`count(*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus == "pending"])`, { restaurantId })
-        .then(setPendingCount);
+       client.fetch(countQuery, { restaurantId }).then(setActiveOrderCount);
     });
     
     return () => subscription.unsubscribe();
@@ -75,7 +82,7 @@ function MainTabs() {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        tabBarIcon: (props) => <TabBarIcon {...props} route={route} pendingCount={pendingCount} />,
+        tabBarIcon: (props) => <TabBarIcon {...props} route={route} badgeCount={activeOrderCount} />,
         tabBarActiveTintColor: COLORS.primaryYellow,
         tabBarInactiveTintColor: COLORS.textLight || '#888',
         tabBarStyle: {
@@ -87,7 +94,6 @@ function MainTabs() {
         headerShown: false,
       })}>
       <Tab.Screen name="Home" component={HomeScreen} />
-      {/* --- FIX: headerShown: false --- */}
       <Tab.Screen name="Orders" component={OrdersScreen} options={{ headerShown: false }}/>
       <Tab.Screen name="Menu" component={MenuScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
@@ -97,51 +103,6 @@ function MainTabs() {
 
 function AppNavigator() {
   const { user, isLoading } = useAuth();
-  const [incomingOrder, setIncomingOrder] = useState(null);
-
-  useEffect(() => {
-    if (!user || !user.restaurant) return;
-   const restaurantId = user.restaurant._id;
-
-    const subscription = client.listen(
-        `*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus == "pending"]`, 
-        { restaurantId }
-    ).subscribe(update => {
-        if (update.transition === 'appear' || update.transition === 'update') {
-            const order = update.result;
-            if (order.orderStatus === 'pending') {
-                setIncomingOrder(order);
-            }
-        }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [user]);
-
-  const handleAccept = async (order, time) => {
-    setIncomingOrder(null);
-    try {
-        await client.patch(order._id).set({ 
-            orderStatus: 'preparing',
-            preparationTime: parseInt(time),
-            statusUpdates: [{ status: 'preparing', timestamp: new Date().toISOString(), message: `Accepted. Prep time: ${time} mins` }]
-        }).commit();
-    } catch (err) {
-        Alert.alert("Error", "Failed to accept order.");
-    }
-  };
-
-  const handleReject = async (order) => {
-    setIncomingOrder(null);
-    try {
-        await client.patch(order._id).set({ 
-            orderStatus: 'cancelled',
-            statusUpdates: [{ status: 'cancelled', timestamp: new Date().toISOString(), message: "Rejected by restaurant" }]
-        }).commit();
-    } catch (err) {
-        Alert.alert("Error", "Failed to reject order.");
-    }
-  };
 
   if (isLoading) {
     return (
@@ -175,22 +136,25 @@ function AppNavigator() {
           </>
         )}
       </Stack.Navigator>
-
-      {user && (
-          <IncomingOrderModal 
-            isVisible={!!incomingOrder} 
-            order={incomingOrder} 
-            onAccept={handleAccept} 
-            onReject={handleReject} 
-          />
-      )}
     </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
   tabIconContainer: { width: 24, height: 24, position: 'relative' },
-  dot: { position: 'absolute', top: -2, right: -4, width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.danger, borderWidth: 1, borderColor: COLORS.white },
+  // Badge Style එක පොඩ්ඩක් ලස්සන කළා
+  badge: { 
+      position: 'absolute', 
+      top: -2, 
+      right: -6, 
+      width: 10, 
+      height: 10, 
+      borderRadius: 5, 
+      backgroundColor: COLORS.danger, 
+      borderWidth: 1.5, 
+      borderColor: COLORS.white,
+      zIndex: 10
+  },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.white }
 });
 

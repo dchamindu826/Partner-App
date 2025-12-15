@@ -1,10 +1,9 @@
-// src/screens/HomeScreen.js
-// --- FINAL FIX: Added Missing Key Logic & Append for Sanity ---
-
+// src/screens/HomeScreen.js (Partner App - Final Fix)
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { 
   View, Text, StyleSheet, ScrollView, ActivityIndicator, 
-  TouchableOpacity, Image, StatusBar, RefreshControl, Switch, Alert 
+  TouchableOpacity, Image, StatusBar, RefreshControl, Switch, Alert,
+  AppState
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { COLORS } from '../theme/colors';
@@ -37,11 +36,58 @@ const HomeScreen = () => {
   const [newIncomingOrder, setNewIncomingOrder] = useState(null);
   const isMounted = useRef(true); 
   
+  // To prevent duplicate notifications/popups in same session
+  const processedOrderIds = useRef(new Set());
+
   useEffect(() => {
     return () => { isMounted.current = false; };
   }, []); 
 
-  // --- LISTENER FOR HOME POPUP ---
+  // --- NEW: Check for ANY pending order (Not just new ones) ---
+  const checkForPendingOrder = async () => {
+      if (!user?.restaurant?._id) return;
+      try {
+          const query = `*[_type == "foodOrder" && restaurant._ref == $id && orderStatus == 'pending'] | order(_createdAt asc)[0] {
+              _id, foodTotal, orderStatus, receiverName, deliveryAddress, _createdAt,
+              "orderedItems": orderedItems[]{ "name": @.item->name, "price": @.item->price, "quantity": @.quantity }
+          }`;
+          const pendingOrder = await client.fetch(query, { id: user.restaurant._id });
+          
+          if (pendingOrder) {
+              // Only show if not already shown in this session OR if coming from background
+               // Commenting out the ID check here to ensure it shows when coming back
+               // if (!processedOrderIds.current.has(pendingOrder._id)) {
+                   // processedOrderIds.current.add(pendingOrder._id);
+                   setNewIncomingOrder(pendingOrder);
+               // }
+          }
+      } catch(e) { console.log("Error checking pending:", e); }
+  };
+
+  // --- APP STATE LISTENER ---
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active') {
+        console.log('App came to foreground: Refreshing & Checking...');
+        fetchDashboardData(); 
+        checkForPendingOrder(); // Check when opening app
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [user]);
+
+  // --- FOCUS EFFECT (Triggers when screen loads) ---
+  useFocusEffect(
+    useCallback(() => {
+      fetchDashboardData();
+      checkForPendingOrder(); // Check when navigating to Home
+    }, [user])
+  );
+
+  // --- REALTIME LISTENER ---
   useEffect(() => {
     if (!user?.restaurant?._id) return;
     const rId = user.restaurant._id;
@@ -53,6 +99,12 @@ const HomeScreen = () => {
       if (update.transition === 'appear' || update.transition === 'update') {
           const newOrder = update.result;
           if (newOrder && newOrder.orderStatus === 'pending' && !newOrder._id.startsWith('drafts.')) {
+              
+              if (processedOrderIds.current.has(newOrder._id)) {
+                  return; 
+              }
+              processedOrderIds.current.add(newOrder._id);
+
               if (isMounted.current) {
                   const fullOrderQuery = `*[_type == "foodOrder" && _id == $id][0]{
                       _id, foodTotal, orderStatus, receiverName, deliveryAddress, _createdAt,
@@ -67,11 +119,10 @@ const HomeScreen = () => {
     return () => subscription.unsubscribe();
   }, [user]);
   
-  // --- ORDER ACTIONS (FIXED LOGIC) ---
+  // --- ORDER ACTIONS ---
   const handleOrderAction = async (order, newStatus, estimatedTime = null) => {
     const docId = order._id.replace('drafts.', '');
     
-    // 1. Generate Unique Key (CRITICAL FIX)
     const generateKey = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 
     const updateItem = {
@@ -80,7 +131,6 @@ const HomeScreen = () => {
         timestamp: new Date().toISOString() 
     };
 
-    // 2. Use Append instead of Replace (CRITICAL FIX)
     let patch = client.patch(docId).set({ orderStatus: newStatus })
                       .setIfMissing({ statusUpdates: [] })
                       .append('statusUpdates', [updateItem]);
@@ -166,12 +216,6 @@ const HomeScreen = () => {
       if (isMounted.current) setIsLoading(false);
     }
   };
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchDashboardData();
-    }, [user])
-  );
 
   const toggleRestaurantStatus = async (value) => {
     if (!restaurantId) return;

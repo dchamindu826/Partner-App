@@ -16,22 +16,23 @@ export const AuthProvider = ({ children }) => {
   // --- (FIX) Token Update Function ---
   
   const updatePushToken = async (currentUser) => {
-      if (!currentUser || !currentUser.restaurant) return;
+      if (!currentUser || !currentUser.restaurant) return;
 
-      try {
-          const token = await registerForPushNotificationsAsync();
-          if (token) {
-              
-              await client
-                .patch(currentUser.restaurant._id)
-                .set({ pushToken: token })
-                .commit();
-              console.log("✅ Push Token Linked to Restaurant:", currentUser.restaurant.name);
-          }
-      } catch (error) {
-          console.error("Failed to update push token:", error);
-      }
-  };
+      try {
+          const token = await registerForPushNotificationsAsync();
+          if (token) {
+              
+              await client
+                .patch(currentUser.restaurant._id)
+                .set({ pushToken: token })
+                .commit();
+              console.log("✅ Push Token Linked to Restaurant:", currentUser.restaurant.name);
+          }
+      } catch (error) {
+          // Network errors, permission issues, etc., handle karala crash eka nawathwanawa
+          console.error("⚠️ Failed to safely update push token:", error.message);
+      }
+  };
 
   useEffect(() => {
     const loadUserFromStorage = async () => {
