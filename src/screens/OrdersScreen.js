@@ -12,7 +12,7 @@ import { client } from '../sanity/sanityClient';
 import OrderCard from '../components/OrderCard';
 import NewOrderAlert from '../components/NewOrderAlert'; 
 import { useNavigation, useFocusEffect } from '@react-navigation/native'; 
-import { Audio } from 'expo-av'; 
+import { Audio } from 'expo-av'; // සරලව Audio import කරන්න
 import Toast from 'react-native-toast-message';
 
 const getOrderQuery = (status, restaurantId) => {
@@ -36,30 +36,58 @@ const OrdersScreen = () => {
   const [newIncomingOrder, setNewIncomingOrder] = useState(null);
   
   const soundRef = useRef(null);
+  const isSoundLoading = useRef(false); // Sound එක ඩබල් වෙන එක නවත්තන්න අලුත් Lock එකක්
   const isMounted = useRef(true); 
   const navigation = useNavigation(); 
 
-  // --- SOUND LOGIC ---
+  // --- SOUND LOGIC (FIXED) ---
   const playAlertSound = async () => {
+    // දැනටමත් Sound එකක් Play වෙනවා නම් හෝ Load වෙමින් පවතී නම් ආයේ Play කරන්න එපා
+    if (soundRef.current || isSoundLoading.current) return;
+    
+    isSoundLoading.current = true; // Lock දානවා
+
     try {
-      if (soundRef.current) { await soundRef.current.unloadAsync(); }
+      console.log("🔊 Loading Sound...");
+
+      // Audio Settings (Silent Mode එකෙත් Play වෙන්න)
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+
+      // Sound එක Load කරන්න
       const { sound } = await Audio.Sound.createAsync(
         require('../../assets/new_order_alert.mp3'), 
         { isLooping: true, shouldPlay: true }
       );
+      
       soundRef.current = sound;
       await sound.playAsync();
-    } catch (error) {}
+      console.log("✅ Sound Started Playing");
+      
+    } catch (error) {
+      console.log("❌ Audio Play Error:", error);
+    } finally {
+      isSoundLoading.current = false; // Lock එක අයින් කරනවා
+    }
   };
 
   const stopAlertSound = async () => {
     try {
+      // Sound එකක් තියෙනවා නම් විතරක් නවත්තන්න
       if (soundRef.current) {
+        console.log("🛑 Stopping Sound...");
         await soundRef.current.stopAsync();
         await soundRef.current.unloadAsync();
         soundRef.current = null;
       }
-    } catch (error) {}
+    } catch (error) {
+        console.log("Error stopping sound:", error);
+    }
   };
 
   // --- DATA FETCHING ---
@@ -84,21 +112,21 @@ const OrdersScreen = () => {
          setOrders(fetchedOrders);
          setTabCounts(counts);
          
+         // Pending Order එකක් තිබේ නම් සහ Popup එක නැත්නම් විතරක් පෙන්නන්න
          if (tab === 'pending' && fetchedOrders.length > 0) {
              const latestOrder = fetchedOrders[0];
-             // Check if popup already showing for this order
-             if (!newIncomingOrder || newIncomingOrder._id !== latestOrder._id) {
-                 if (!newIncomingOrder) {
-                     setNewIncomingOrder(latestOrder);
-                     playAlertSound(); 
-                 }
+             
+             // දැනටමත් Popup එක නැත්නම් විතරක් අලුතින් දාන්න
+             if (!newIncomingOrder) {
+                 setNewIncomingOrder(latestOrder);
+                 playAlertSound(); 
              }
          }
       }
     } catch (error) {
       console.error("Fetch error handled");
     }
-  }, [restaurantId, activeTab, newIncomingOrder]); 
+  }, [restaurantId, activeTab, newIncomingOrder]); // newIncomingOrder dependency එක වැදගත්
 
   useEffect(() => {
     return () => {
@@ -119,6 +147,7 @@ const OrdersScreen = () => {
         
         if (newOrder && newOrder.orderStatus === 'pending') {
             if (isMounted.current) {
+                // දැනට පෙන්වන Order ID එක වෙනස් නම් හෝ Popup එක නැත්නම් විතරක්
                 if (!newIncomingOrder || newIncomingOrder._id !== newOrder._id) {
                     const fullOrderQuery = `*[_type == "foodOrder" && _id == $id][0]{
                         _id, foodTotal, orderStatus, receiverName, receiverPhone, deliveryAddress, _createdAt,
@@ -131,8 +160,8 @@ const OrdersScreen = () => {
                 }
             }
         } else {
-            // Close popup if status changed from pending
-            if (newIncomingOrder && newIncomingOrder._id === newOrder._id && newOrder.orderStatus !== 'pending') {
+            // Status එක Pending නොවී ගියොත් Popup එක සහ Sound එක අයින් කරන්න
+            if (newIncomingOrder && newIncomingOrder._id === newOrder._id) {
                 setNewIncomingOrder(null);
                 stopAlertSound();
             }
@@ -162,7 +191,7 @@ const OrdersScreen = () => {
   // --- HANDLE ACTION (UPDATED) ---
   const handleOrderAction = async (order, newStatus, estimatedTime = null) => {
     
-    // 1. Step 1: Stop Sound & Close Popup IMMEDIATELY
+    // 1. මුලින්ම Sound එක සහ Popup එක අයින් කරන්න
     await stopAlertSound();
     setNewIncomingOrder(null); 
 
@@ -189,10 +218,10 @@ const OrdersScreen = () => {
     try {
       await patch.commit();
       
-      // 2. REFRESH DATA
+      // 2. Refresh Data
       fetchOrders(); 
 
-      // 3. SHOW STYLED TOAST (Wait 300ms for Modal to close fully)
+      // 3. Show Styled Toast Message
       setTimeout(() => {
         if (newStatus === 'preparing') {
             Toast.show({
@@ -210,7 +239,7 @@ const OrdersScreen = () => {
               visibilityTime: 4000,
             });
         }
-      }, 300); // 300ms delay eka wadagath
+      }, 300);
 
     } catch (error) {
       console.error(`Update failed:`, error);

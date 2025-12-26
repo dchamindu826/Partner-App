@@ -115,7 +115,7 @@ const NewOrderAlert = ({ isVisible, order, onAccept, onReject }) => {
                         <Text style={styles.cardTitle}>Customer</Text>
                     </View>
                     <Text style={styles.value}>{order.receiverName || 'Guest'}</Text>
-                    <Text style={styles.subValue}>{order.deliveryAddress || 'Pick-up'}</Text>
+                    <Text style={styles.subValue}>{order.deliveryAddress || 'Delivery For'}</Text>
                 </View>
 
                 {/* Items List */}

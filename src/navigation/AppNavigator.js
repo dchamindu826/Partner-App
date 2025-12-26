@@ -1,16 +1,29 @@
 // src/navigation/AppNavigator.js
 
 import React, { useState, useEffect } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme } from '@react-navigation/native'; // DefaultTheme එකතු කළා
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNavigationContainerRef } from '@react-navigation/native'; // Ref එක සඳහා
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
-import { View, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { client } from '../sanity/sanityClient';
 
-// Screens
+// Navigation Ref එක export කිරීම (App.js හි භාවිතයට)
+export const navigationRef = createNavigationContainerRef();
+
+// Blinking issue එක විසඳීමට තේම් එකක් සෑදීම
+const MyTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    background: COLORS.white, // ඇප් එකේ background එකට සමාන පාටක් මෙතනට දෙන්න
+  },
+};
+
+// Screens (ඔබේ සියලුම screens එලෙසම තබා ගන්න)
 import HomeScreen from '../screens/HomeScreen';
 import OrdersScreen from '../screens/OrdersScreen';
 import MenuScreen from '../screens/MenuScreen';
@@ -41,12 +54,8 @@ const TabBarIcon = ({ focused, color, size, route, badgeCount }) => {
   return (
     <View style={styles.tabIconContainer}>
       <Ionicons name={iconName} size={size} color={color} />
-      {/* Orders Tab එකට විතරක් Badge එක පෙන්නනවා */}
       {route.name === 'Orders' && badgeCount > 0 && (
-        <View style={styles.badge}>
-            {/* කැමති නම් අංකය පෙන්නන්නත් පුළුවන්, නැත්නම් Dot එක විතරක් තියන්න */}
-            {/* <Text style={styles.badgeText}>{badgeCount}</Text> */}
-        </View>
+        <View style={styles.badge}></View>
       )}
     </View>
   );
@@ -59,23 +68,14 @@ function MainTabs() {
   useEffect(() => {
     if (!user || !user.restaurant) return;
     const restaurantId = user.restaurant._id;
-    
-    // --- 1. Query එක වෙනස් කළා ---
-    // Pending විතරක් නෙමෙයි, Active හැම Order එකක්ම (Completed/Cancelled නොවන) ගණන් කරනවා
     const countQuery = `count(*[_type == "foodOrder" && restaurant._ref == $restaurantId && orderStatus in ["pending", "preparing", "readyForPickup", "assigned", "onTheWay"]])`;
-
-    // මුලින්ම Count එක ගන්නවා
     client.fetch(countQuery, { restaurantId }).then(setActiveOrderCount);
-
-    // --- 2. Listener එක වෙනස් කළා ---
-    // Restaurant එකේ ඕනෑම Order එකක වෙනසක් වුනොත් Count එක ආයේ බලනවා
     const subscription = client.listen(
         `*[_type == "foodOrder" && restaurant._ref == $restaurantId]`, 
         { restaurantId }
     ).subscribe(() => {
        client.fetch(countQuery, { restaurantId }).then(setActiveOrderCount);
     });
-    
     return () => subscription.unsubscribe();
   }, [user]);
 
@@ -84,10 +84,9 @@ function MainTabs() {
       screenOptions={({ route }) => ({
         tabBarIcon: (props) => <TabBarIcon {...props} route={route} badgeCount={activeOrderCount} />,
         tabBarActiveTintColor: COLORS.primaryYellow,
-        tabBarInactiveTintColor: COLORS.textLight || '#888',
+        tabBarInactiveTintColor: '#888',
         tabBarStyle: {
           backgroundColor: COLORS.white,
-          borderTopColor: COLORS.border || '#EEE',
           height: 60,
           paddingBottom: 5,
         },
@@ -113,7 +112,8 @@ function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    // theme={MyTheme} සහ ref={navigationRef} මෙහිදී එකතු කළා
+    <NavigationContainer theme={MyTheme} ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
           <>
@@ -142,7 +142,6 @@ function AppNavigator() {
 
 const styles = StyleSheet.create({
   tabIconContainer: { width: 24, height: 24, position: 'relative' },
-  // Badge Style එක පොඩ්ඩක් ලස්සන කළා
   badge: { 
       position: 'absolute', 
       top: -2, 

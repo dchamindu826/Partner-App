@@ -19,17 +19,18 @@
       "bundleIdentifier": "com.rapidgo.partner"
     },
     "android": {
-      "package": "com.rapidgo.partner", 
-      "googleServicesFile": "./google-services.json", 
+      "package": "com.rapidgo.partner",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "NOTIFICATIONS",
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "android.permission.NOTIFICATIONS",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -46,7 +47,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "7f83a2b1-4cbe-4458-8588-56bf14870144"
+        "projectId": "ba806278-4c73-4faf-910d-3d2a56b6d6cf"
       }
     }
   }
